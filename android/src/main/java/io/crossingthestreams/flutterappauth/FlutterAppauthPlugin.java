@@ -3,6 +3,9 @@ package io.crossingthestreams.flutterappauth;
 import android.content.Intent;
 import android.net.Uri;
 
+import androidx.annotation.Nullable;
+
+import net.openid.appauth.AppAuthConfiguration;
 import net.openid.appauth.AuthorizationException;
 import net.openid.appauth.AuthorizationRequest;
 import net.openid.appauth.AuthorizationResponse;
@@ -12,12 +15,12 @@ import net.openid.appauth.ClientSecretBasic;
 import net.openid.appauth.ResponseTypeValues;
 import net.openid.appauth.TokenRequest;
 import net.openid.appauth.TokenResponse;
+import net.openid.appauth.connectivity.DefaultConnectionBuilder;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-import androidx.annotation.Nullable;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
@@ -198,6 +201,12 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
     }
 
 
+    private AuthorizationService getAuthService(boolean isDebug) {
+        AppAuthConfiguration.Builder authBuilder = new AppAuthConfiguration.Builder();
+        authBuilder.setConnectionBuilder(isDebug ? DebugConnectionBuilder.INSTANCE : DefaultConnectionBuilder.INSTANCE);
+        return new AuthorizationService(registrar.context(), authBuilder.build());
+    }
+
     private void performAuthorization(AuthorizationServiceConfiguration serviceConfiguration, String clientId, String redirectUrl, ArrayList<String> scopes, String loginHint, Map<String, String> additionalParameters, boolean exchangeCode, ArrayList<String> promptValues) {
         AuthorizationRequest.Builder authRequestBuilder =
                 new AuthorizationRequest.Builder(
@@ -222,7 +231,7 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
         }
 
         AuthorizationRequest authRequest = authRequestBuilder.build();
-        AuthorizationService authService = new AuthorizationService(registrar.context());
+        AuthorizationService authService = getAuthService(true);
         Intent authIntent = authService.getAuthorizationRequestIntent(authRequest);
         registrar.activity().startActivityForResult(authIntent, exchangeCode ? RC_AUTH_EXCHANGE_CODE : RC_AUTH);
     }
@@ -246,7 +255,7 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
         }
 
         TokenRequest tokenRequest = builder.build();
-        AuthorizationService authService = new AuthorizationService(registrar.context());
+        AuthorizationService authService = getAuthService(true);
         AuthorizationService.TokenResponseCallback tokenResponseCallback = new AuthorizationService.TokenResponseCallback() {
             @Override
             public void onTokenRequestCompleted(
