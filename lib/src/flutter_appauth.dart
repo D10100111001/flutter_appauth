@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_appauth/src/mappable.dart';
 import 'package:meta/meta.dart';
 import 'authorization_request.dart';
 import 'authorization_response.dart';
@@ -6,6 +7,8 @@ import 'authorization_token_request.dart';
 import 'authorization_token_response.dart';
 import 'token_request.dart';
 import 'token_response.dart';
+
+import 'package:flutter/foundation.dart' as Foundation;
 
 class FlutterAppAuth {
   factory FlutterAppAuth() => _instance;
@@ -18,11 +21,18 @@ class FlutterAppAuth {
   static final FlutterAppAuth _instance = new FlutterAppAuth.private(
       const MethodChannel('crossingthestreams.io/flutter_appauth'));
 
+  Map<String, dynamic> buildArguments(Mappable request) {
+    const isDebugMode = !Foundation.kReleaseMode;
+    final map = request.toMap();
+    map.putIfAbsent('isDebug', () => isDebugMode);
+    return map;
+  }
+
   /// Convenience method for authorizing and then exchanges code
   Future<AuthorizationTokenResponse> authorizeAndExchangeCode(
       AuthorizationTokenRequest request) async {
     var result = await _channel.invokeMethod(
-        'authorizeAndExchangeCode', request.toMap());
+        'authorizeAndExchangeCode', buildArguments(request));
     return AuthorizationTokenResponse(
         result['accessToken'],
         result['refreshToken'],
@@ -37,7 +47,7 @@ class FlutterAppAuth {
   }
 
   Future<AuthorizationResponse> authorize(AuthorizationRequest request) async {
-    var result = await _channel.invokeMethod('authorize', request.toMap());
+    var result = await _channel.invokeMethod('authorize', buildArguments(request));
     return AuthorizationResponse(
         result['authorizationCode'],
         result['codeVerifier'],
@@ -46,7 +56,7 @@ class FlutterAppAuth {
 
   /// For exchanging tokens
   Future<TokenResponse> token(TokenRequest request) async {
-    var result = await _channel.invokeMethod('token', request.toMap());
+    var result = await _channel.invokeMethod('token', buildArguments(request));
     return TokenResponse(
         result['accessToken'],
         result['refreshToken'],

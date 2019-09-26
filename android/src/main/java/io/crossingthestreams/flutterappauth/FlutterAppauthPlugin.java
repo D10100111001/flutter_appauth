@@ -52,6 +52,9 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
     private PendingOperation pendingOperation;
     private String clientSecret;
 
+    private boolean isDebug = false;
+
+
     private FlutterAppauthPlugin(Registrar registrar) {
         this.registrar = registrar;
         this.registrar.addActivityResultListener(this);
@@ -76,6 +79,8 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
     @Override
     public void onMethodCall(MethodCall call, Result result) {
         Map<String, Object> arguments = call.arguments();
+        if (arguments.containsKey("isDebug"))
+            isDebug = (boolean)arguments.get("isDebug");
         switch (call.method) {
             case AUTHORIZE_AND_EXCHANGE_CODE_METHOD:
                 checkAndSetPendingOperation(call.method, result);
@@ -152,9 +157,9 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
                 }
             };
             if (tokenRequestParameters.discoveryUrl != null) {
-                AuthorizationServiceConfiguration.fetchFromUrl(Uri.parse(tokenRequestParameters.discoveryUrl), callback);
+                fetchFromUrl(Uri.parse(tokenRequestParameters.discoveryUrl), callback);
             } else {
-                AuthorizationServiceConfiguration.fetchFromIssuer(Uri.parse(tokenRequestParameters.issuer), callback);
+                fetchFromIssuer(Uri.parse(tokenRequestParameters.issuer), callback);
 
             }
         }
@@ -162,7 +167,9 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
     }
 
     private AuthorizationServiceConfiguration requestParametersToServiceConfiguration(TokenRequestParameters tokenRequestParameters) {
-        return new AuthorizationServiceConfiguration(Uri.parse(tokenRequestParameters.serviceConfigurationParameters.get("authorizationEndpoint")), Uri.parse(tokenRequestParameters.serviceConfigurationParameters.get("tokenEndpoint")));
+        return new AuthorizationServiceConfiguration(
+                Uri.parse(tokenRequestParameters.serviceConfigurationParameters.get("authorizationEndpoint")),
+                Uri.parse(tokenRequestParameters.serviceConfigurationParameters.get("tokenEndpoint")));
     }
 
     private void handleTokenMethodCall(Map<String, Object> arguments) {
@@ -172,36 +179,40 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
             AuthorizationServiceConfiguration serviceConfiguration = requestParametersToServiceConfiguration(tokenRequestParameters);
             performTokenRequest(serviceConfiguration, tokenRequestParameters);
         } else {
+            AuthorizationServiceConfiguration.RetrieveConfigurationCallback callback = new AuthorizationServiceConfiguration.RetrieveConfigurationCallback() {
+                @Override
+                public void onFetchConfigurationCompleted(@Nullable AuthorizationServiceConfiguration serviceConfiguration, @Nullable AuthorizationException ex) {
+                    if (ex == null) {
+                        performTokenRequest(serviceConfiguration, tokenRequestParameters);
+                    } else {
+                        finishWithDiscoveryError(ex);
+                    }
+                }
+            };
             if (tokenRequestParameters.discoveryUrl != null) {
-                AuthorizationServiceConfiguration.fetchFromUrl(Uri.parse(tokenRequestParameters.discoveryUrl), new AuthorizationServiceConfiguration.RetrieveConfigurationCallback() {
-                    @Override
-                    public void onFetchConfigurationCompleted(@Nullable AuthorizationServiceConfiguration serviceConfiguration, @Nullable AuthorizationException ex) {
-                        if (ex == null) {
-                            performTokenRequest(serviceConfiguration, tokenRequestParameters);
-                        } else {
-                            finishWithDiscoveryError(ex);
-                        }
-                    }
-                });
-
+                fetchFromUrl(Uri.parse(tokenRequestParameters.discoveryUrl), callback);
             } else {
-
-                AuthorizationServiceConfiguration.fetchFromIssuer(Uri.parse(tokenRequestParameters.issuer), new AuthorizationServiceConfiguration.RetrieveConfigurationCallback() {
-                    @Override
-                    public void onFetchConfigurationCompleted(@Nullable AuthorizationServiceConfiguration serviceConfiguration, @Nullable AuthorizationException ex) {
-                        if (ex == null) {
-                            performTokenRequest(serviceConfiguration, tokenRequestParameters);
-                        } else {
-                            finishWithDiscoveryError(ex);
-                        }
-                    }
-                });
+                fetchFromIssuer(Uri.parse(tokenRequestParameters.issuer), callback);
             }
         }
     }
 
 
-    private AuthorizationService getAuthService(boolean isDebug) {
+    private void fetchFromUrl(Uri url, AuthorizationServiceConfiguration.RetrieveConfigurationCallback callback) {
+        AuthorizationServiceConfiguration.fetchFromUrl(url, callback,
+                isDebug ? DebugConnectionBuilder.INSTANCE : DefaultConnectionBuilder.INSTANCE);
+    }
+
+    private void fetchFromIssuer(Uri url, AuthorizationServiceConfiguration.RetrieveConfigurationCallback callback) {
+        final Uri issuerUrl = url.buildUpon()
+                .appendPath(AuthorizationServiceConfiguration.WELL_KNOWN_PATH)
+                .appendPath(AuthorizationServiceConfiguration.OPENID_CONFIGURATION_RESOURCE)
+                .build();
+        AuthorizationServiceConfiguration.fetchFromUrl(issuerUrl, callback,
+                isDebug ? DebugConnectionBuilder.INSTANCE : DefaultConnectionBuilder.INSTANCE);
+    }
+
+    private AuthorizationService getAuthService() {
         AppAuthConfiguration.Builder authBuilder = new AppAuthConfiguration.Builder();
         authBuilder.setConnectionBuilder(isDebug ? DebugConnectionBuilder.INSTANCE : DefaultConnectionBuilder.INSTANCE);
         return new AuthorizationService(registrar.context(), authBuilder.build());
@@ -231,7 +242,7 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
         }
 
         AuthorizationRequest authRequest = authRequestBuilder.build();
-        AuthorizationService authService = getAuthService(true);
+        AuthorizationService authService = getAuthService();
         Intent authIntent = authService.getAuthorizationRequestIntent(authRequest);
         registrar.activity().startActivityForResult(authIntent, exchangeCode ? RC_AUTH_EXCHANGE_CODE : RC_AUTH);
     }
@@ -255,7 +266,7 @@ public class FlutterAppauthPlugin implements MethodCallHandler, PluginRegistry.A
         }
 
         TokenRequest tokenRequest = builder.build();
-        AuthorizationService authService = getAuthService(true);
+        AuthorizationService authService = getAuthService();
         AuthorizationService.TokenResponseCallback tokenResponseCallback = new AuthorizationService.TokenResponseCallback() {
             @Override
             public void onTokenRequestCompleted(
